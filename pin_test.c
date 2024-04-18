@@ -22,6 +22,7 @@
 #include <util/delay.h>
 #include <avr/interrupt.h>
 #include <stdio.h>
+#include <math.h>
 #include "lcd.h"
 #include "uart.h"
 #include "motors.h"
@@ -51,16 +52,18 @@ enum directions { UP, RIGHT, DOWN, LEFT };
 
 void timer0_init();
 void timer1_init();
+void timer2_init();
 void debounce(uint8_t, uint8_t);
 void updateSelectionLeft();
 void updateSelectionRight();
-Corner fetchNextCorner();
+void fetchNextCorner();
+int calculateDistance(int, int, int, int);
 
 volatile uint8_t got_time = 0;
 volatile uint8_t running = 0;
 volatile uint16_t range_count;
 volatile char first_time = 1;
-volatile char curr_selection = 0;
+volatile unsigned char curr_selection = 0;
 volatile char driving = 0;
 
 #define OUTBUFSIZE 17
@@ -92,9 +95,11 @@ CORNER MAPPINGS:
 1st - 5th
 */
 
-volatile Corner closest_corner;
-volatile Corner next_corner;
+volatile Corner* closest_corner;
+volatile Corner* next_corner;
 volatile char current_driving_direction = UP;
+
+#define SQUARE(x) ((x)*(x))
 
 
 int main(void)
@@ -132,7 +137,7 @@ int main(void)
   ninth_corner.left = &fourth_corner;
 
   // start guidebot at corner 1 during startup
-  closest_corner = first_corner;
+  closest_corner = &first_corner;
 
   lcd_init();                 // Initialize lcd
   serial_init(MYUBRR);        // Initialize the serial port
@@ -251,7 +256,7 @@ int main(void)
         else if( (PIND & (1 << PD4)) == 0){ //white press
             targetDestination.latitude = locations[curr_selection].latitude;
             targetDestination.longitude = locations[curr_selection].longitude;
-            state = GO_DESTINATION;
+            state = WAIT_FOR_SIGNAL;
             debounce(PD4, WHITE);
             first_time = 1;
         }
@@ -295,7 +300,13 @@ int main(void)
                   oldLocation.longitude = currentLocation.longitude;
               }
           }
-          next_corner = fetchNextCorner();
+          fetchNextCorner();
+          snprintf(buffer, 16, "%d %d", next_corner->latitude, next_corner->longitude);
+          // debugging!!
+          lcd_writecommand(1);
+          lcd_stringout(buffer);
+          while(1);
+          // debugging stop
       }
         
       //----------------------------------------------------------------------------------------------------------------
@@ -411,10 +422,42 @@ void updateSelectionRight() {
     } 
 }
 
-Corner fetchNextCorner() {
+void fetchNextCorner() {
     // compare location of adjacent corners with destination
-    // drive to closest
+    uint16_t min_distance = 65000;
+    uint16_t distance;
+    Corner* future_corner; 
     if (closest_corner->upper != NULL) {
-
+        distance = calculateDistance(closest_corner->upper->latitude, closest_corner->upper->longitude, targetDestination.latitude, targetDestination.longitude);
+        if (distance < min_distance) {
+            min_distance = distance;
+            future_corner = closest_corner->upper;
+        }
     }
+    if (closest_corner->right != NULL) {
+        distance = calculateDistance(closest_corner->right->latitude, closest_corner->right->longitude, targetDestination.latitude, targetDestination.longitude);
+        if (distance < min_distance) {
+            min_distance = distance;
+            future_corner = closest_corner->right;
+        }
+    }
+    if (closest_corner->down != NULL) {
+        distance = calculateDistance(closest_corner->down->latitude, closest_corner->down->longitude, targetDestination.latitude, targetDestination.longitude);
+        if (distance < min_distance) {
+            min_distance = distance;
+            future_corner = closest_corner->down;
+        }
+    }
+    if (closest_corner->left != NULL) {
+        distance = calculateDistance(closest_corner->left->latitude, closest_corner->left->longitude, targetDestination.latitude, targetDestination.longitude);
+        if (distance < min_distance) {
+            min_distance = distance;
+            future_corner = closest_corner->left;
+        }
+    }
+    next_corner = future_corner;
+}
+
+int calculateDistance(int latitude1, int longitude1, int latitude2, int longitude2) {
+    return sqrt(SQUARE(latitude1 - latitude2) + SQUARE(longitude1 - longitude2));
 }
