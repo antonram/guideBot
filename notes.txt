@@ -1,0 +1,26 @@
+PORTD:
+MUX Output bit: PD0 (ATMega Rx)
+Voice recognition Rx: PD1 (ATMega Tx)
+Rangefinder: PD2 (echo)
+Motor Driver enable: PD3
+WHITE Button: PD4
+Servo: PD6
+MUX select bit: PD7
+BLUE BUTTON: PD5
+
+
+PORTB:
+LCD bits: PB0-PB5 (inclusive)
+RED BUTTON: PB7
+
+
+PORTC:
+L298N: PC1-PC4
+Rangefinder: PC5 (trig)
+
+MISC:
+GPS Tx: Mux C0
+Voice recognition Tx: Mux C1
+
+FREE BITS:
+PC0
