@@ -54,7 +54,7 @@ void timer1_init();
 void debounce(uint8_t, uint8_t);
 void updateSelectionLeft();
 void updateSelectionRight();
-Corner fetchNextCorner(Corner);
+Corner fetchNextCorner();
 
 volatile uint8_t got_time = 0;
 volatile uint8_t running = 0;
@@ -100,36 +100,36 @@ volatile char current_driving_direction = UP;
 int main(void)
 {
   // attach mappings to corners. See map above for reference
-  first_corner->upper = &second_corner;
-  first_corner->right = &fifth_corner;
+  first_corner.upper = &second_corner;
+  first_corner.right = &fifth_corner;
 
-  second_corner->upper = &third_corner;
-  second_corner->right = &sixth_corner;
-  second_corner->down = &first_corner;
+  second_corner.upper = &third_corner;
+  second_corner.right = &sixth_corner;
+  second_corner.down = &first_corner;
 
-  third_corner->upper = &fourth_corner;
-  third_corner->right = &seventh_corner;
-  third_corner->down = &second_corner;
+  third_corner.upper = &fourth_corner;
+  third_corner.right = &seventh_corner;
+  third_corner.down = &second_corner;
 
-  fourth_corner->right = &ninth_corner;
-  fourth_corner->down = &third_corner;
+  fourth_corner.right = &ninth_corner;
+  fourth_corner.down = &third_corner;
 
-  fifth_corner->upper = &sixth_corner;
-  fifth_corner->left = &first_corner;
+  fifth_corner.upper = &sixth_corner;
+  fifth_corner.left = &first_corner;
 
-  sixth_corner->upper = &seventh_corner;
-  sixth_corner->down = &fifth_corner;
-  sixth_corner->left = &second_corner;
+  sixth_corner.upper = &seventh_corner;
+  sixth_corner.down = &fifth_corner;
+  sixth_corner.left = &second_corner;
 
-  seventh_corner->right = &eighth_corner;
-  seventh_corner->down = &sixth_corner;
-  seventh_corner->left = &third_corner;
+  seventh_corner.right = &eighth_corner;
+  seventh_corner.down = &sixth_corner;
+  seventh_corner.left = &third_corner;
 
-  eighth_corner->upper = &ninth_corner;
-  eighth_corner->left = &seventh_corner;
+  eighth_corner.upper = &ninth_corner;
+  eighth_corner.left = &seventh_corner;
 
-  ninth_corner->down = &eighth_corner;
-  ninth_corner->left = &fourth_corner;
+  ninth_corner.down = &eighth_corner;
+  ninth_corner.left = &fourth_corner;
 
   // start guidebot at corner 1 during startup
   closest_corner = first_corner;
@@ -295,7 +295,7 @@ int main(void)
                   oldLocation.longitude = currentLocation.longitude;
               }
           }
-          next_corner = fetchNextCorner(closest_corner);
+          next_corner = fetchNextCorner();
       }
         
       //----------------------------------------------------------------------------------------------------------------
@@ -411,4 +411,10 @@ void updateSelectionRight() {
     } 
 }
 
-Corner fetchNextCorner()
+Corner fetchNextCorner() {
+    // compare location of adjacent corners with destination
+    // drive to closest
+    if (closest_corner->upper != NULL) {
+
+    }
+}
