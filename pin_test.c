@@ -26,6 +26,7 @@
 #include "uart.h"
 #include "motors.h"
 #include "coordinates.h"
+#include "corners.h"
 
 
 // Calculate the register value for the USART baud rate
@@ -37,7 +38,7 @@
 #define SERVO_LEFT 18
 
 //STATES
-enum states { START, SELECT, GO_DESTINATION };
+enum states { START, SELECT, WAIT_FOR_SIGNAL, DRIVE };
 
 //BUTTONS
 enum buttons { RED, WHITE, BLUE };
@@ -45,11 +46,15 @@ enum buttons { RED, WHITE, BLUE };
 // destinations
 enum destinations { EEB, OHE, GFS, BOOKSTORE, TCC, VHE};
 
+// directions
+enum directions { UP, RIGHT, DOWN, LEFT };
+
 void timer0_init();
 void timer1_init();
 void debounce(uint8_t, uint8_t);
 void updateSelectionLeft();
 void updateSelectionRight();
+Corner fetchNextCorner(Corner);
 
 volatile uint8_t got_time = 0;
 volatile uint8_t running = 0;
@@ -65,9 +70,70 @@ volatile Location targetDestination;
 volatile Location oldLocation = {0,0};
 volatile Location currentLocation;
 
+// initializing corners, 1 = bottom left, counting up first then to the right.
+// structure: upper, right, down, left
+volatile Corner first_corner = {1992, 4453, NULL, NULL, NULL, NULL};
+volatile Corner second_corner = {2331, 4042, NULL, NULL, NULL, NULL};
+volatile Corner third_corner = {2700, 3652, NULL, NULL, NULL, NULL};
+volatile Corner fourth_corner = {3254, 3417, NULL, NULL, NULL, NULL};
+volatile Corner fifth_corner = {1350, 3222, NULL, NULL, NULL, NULL};
+volatile Corner sixth_corner = {1806, 2939, NULL, NULL, NULL, NULL};
+volatile Corner seventh_corner = {2231, 2617, NULL, NULL, NULL, NULL};
+volatile Corner eighth_corner = {1726, 1494, NULL, NULL, NULL, NULL};
+volatile Corner ninth_corner = {2224, 1162, NULL, NULL, NULL, NULL};
+/*
+CORNER MAPPINGS:
+4th -  -  - 9th
+|            |
+3rd - 7th - 8th
+|      |
+2nd - 6th
+|      |
+1st - 5th
+*/
+
+volatile Corner closest_corner;
+volatile Corner next_corner;
+volatile char current_driving_direction = UP;
+
 
 int main(void)
 {
+  // attach mappings to corners. See map above for reference
+  first_corner->upper = &second_corner;
+  first_corner->right = &fifth_corner;
+
+  second_corner->upper = &third_corner;
+  second_corner->right = &sixth_corner;
+  second_corner->down = &first_corner;
+
+  third_corner->upper = &fourth_corner;
+  third_corner->right = &seventh_corner;
+  third_corner->down = &second_corner;
+
+  fourth_corner->right = &ninth_corner;
+  fourth_corner->down = &third_corner;
+
+  fifth_corner->upper = &sixth_corner;
+  fifth_corner->left = &first_corner;
+
+  sixth_corner->upper = &seventh_corner;
+  sixth_corner->down = &fifth_corner;
+  sixth_corner->left = &second_corner;
+
+  seventh_corner->right = &eighth_corner;
+  seventh_corner->down = &sixth_corner;
+  seventh_corner->left = &third_corner;
+
+  eighth_corner->upper = &ninth_corner;
+  eighth_corner->left = &seventh_corner;
+
+  ninth_corner->down = &eighth_corner;
+  ninth_corner->left = &fourth_corner;
+
+  // start guidebot at corner 1 during startup
+  closest_corner = first_corner;
+
   lcd_init();                 // Initialize lcd
   serial_init(MYUBRR);        // Initialize the serial port
   sei();                      // Enable interrupts
@@ -192,46 +258,46 @@ int main(void)
 
       }
 
-      else if(state == GO_DESTINATION){
-        if(!driving) {
-            lcd_writecommand(1);
-            if(first_time) {
-                snprintf(buffer, 16, "Target Lat: %4d", targetDestination.latitude);
-                lcd_moveto(0,0);
-                lcd_stringout(buffer);
-                lcd_moveto(1,0);
-                snprintf(buffer, 16, "Target Lon: %4d", targetDestination.longitude);
-                lcd_stringout(buffer);
-                first_time = 0;
-                _delay_ms(500);
-            }
-            int sats = check_sats();
+      else if(state == WAIT_FOR_SIGNAL){
+        lcd_writecommand(1);
+        if(first_time) {
+            snprintf(buffer, 16, "Target Lat: %4d", targetDestination.latitude);
             lcd_moveto(0,0);
-            lcd_stringout("waiting for sats");
-            if(sats > 0) {
-                lcd_moveto(1,0);
-                driving = 1;
-                snprintf(buffer, 16, "SATS: %d", sats);
-                lcd_stringout(buffer);
-            }
+            lcd_stringout(buffer);
+            lcd_moveto(1,0);
+            snprintf(buffer, 16, "Target Lon: %4d", targetDestination.longitude);
+            lcd_stringout(buffer);
+            first_time = 0;
+            _delay_ms(500);
         }
-        else {
-            currentLocation = get_coord();
-            if(currentLocation.latitude != 0) {
-                if((currentLocation.latitude != oldLocation.latitude) || (currentLocation.longitude != currentLocation.longitude)) {
-                    snprintf(buffer, 16, "Curr Lat: %4d", currentLocation.latitude);
-                    lcd_moveto(0,0);
-                    lcd_stringout(buffer);
-                    lcd_moveto(1,0);
-                    snprintf(buffer, 16, "Curr Lon: %4d", currentLocation.longitude);
-                    lcd_stringout(buffer);
-                    oldLocation.latitude = currentLocation.latitude;
-                    oldLocation.longitude = currentLocation.longitude;
-                }
-            }
+        int sats = check_sats();
+        lcd_moveto(0,0);
+        lcd_stringout("waiting for sats");
+        if(sats > 0) {
+            lcd_moveto(1,0);
+            driving = 1;
+            snprintf(buffer, 16, "SATS: %d", sats);
+            lcd_stringout(buffer);
+            state = DRIVE;
         }
-        
       }
+      else if (state == DRIVE) {
+          currentLocation = get_coord();
+          if(currentLocation.latitude != 0) {
+              if((currentLocation.latitude != oldLocation.latitude) || (currentLocation.longitude != currentLocation.longitude)) {
+                  snprintf(buffer, 16, "Curr Lat: %4d", currentLocation.latitude);
+                  lcd_moveto(0,0);
+                  lcd_stringout(buffer);
+                  lcd_moveto(1,0);
+                  snprintf(buffer, 16, "Curr Lon: %4d", currentLocation.longitude);
+                  lcd_stringout(buffer);
+                  oldLocation.latitude = currentLocation.latitude;
+                  oldLocation.longitude = currentLocation.longitude;
+              }
+          }
+          next_corner = fetchNextCorner(closest_corner);
+      }
+        
       //----------------------------------------------------------------------------------------------------------------
       
     }
@@ -344,3 +410,5 @@ void updateSelectionRight() {
         lcd_moveto(1,15);
     } 
 }
+
+Corner fetchNextCorner()

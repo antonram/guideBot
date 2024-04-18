@@ -6,4 +6,4 @@ typedef struct {
     int longitude;
 } Location;
 
-#endif // COORDINATES_H
+#endif
