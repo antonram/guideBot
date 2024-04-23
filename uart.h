@@ -1,4 +1,5 @@
 #include "coordinates.h"
+#include "gps.h"
 
 void serial_init(unsigned short);
 char serial_in();
@@ -7,4 +8,4 @@ Location get_coord();
 unsigned char recv_string(char *rp);
 void serial_stringout(char *s);
 void serial_txchar(char ch);
-void check_vr();
+GPS process_gps_data();

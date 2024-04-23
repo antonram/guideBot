@@ -29,6 +29,7 @@
 
 #include "serial.h"
 #include "coordinates.h"
+#include "gps.h"
 
 #define SERIAL_START '$'
 #define SERIAL_END   '\r'
@@ -40,6 +41,14 @@
 static volatile unsigned char rcount, recv_full, recv_start;
 static volatile char rbuf[RCVD_BUF_SIZE];
 static volatile char loopCount = 0;
+
+static volatile char rbufGPRMC[RCVD_BUF_SIZE];  // Buffer for GPRMC sentences
+static volatile char rbufGPGSA[RCVD_BUF_SIZE];  // Buffer for GPGSA sentences
+static volatile unsigned char recv_full_GPRMC = 0;
+static volatile unsigned char recv_full_GPGSA = 0;
+static char buffer[RCVD_BUF_SIZE]; // Temporary buffer for assembling sentences
+static uint8_t buf_pos = 0;
+static unsigned char sentence_type = 0; // 0: unknown, 1: GPRMC, 2: GPGSA
 
 void serial_init(unsigned short ubrr_value)
 {
@@ -106,87 +115,36 @@ unsigned char recv_string(char *rp)
     return(status);
 }
 
-ISR(USART_RX_vect)
-{
-    // char ch = UDR0;
-    // // lcd_moveto(0,0);
-    // lcd_writedata(ch);
-    // // _delay_ms(1000);
+ISR(USART_RX_vect) {
+    char ch = UDR0; // Read the received character, which also clears the RXC flag
 
-    // // ch = UDR0;			// Get the received charater
-    // if (ch == SERIAL_START) {   // First character of string?
-	// recv_start = 1;		// Flag that start character received
-	// rcount = 0;		// Index for where next character goes in rbuf
-	// recv_full = 0;          // Clear flag for rbuf full
-    // }
-    // else if (recv_start) {
-	// if (ch == SERIAL_END) { // End of transmission?
-	//     if (rcount > 1) {	// Anything received?/
-	// 	rbuf[rcount] = '\0'; // Terminate the string
-	// 	recv_full = 1;  // Set flag for data received
-	//     }
-	//     recv_start = 0;	// Packet complete
-	// }
-	// else if ((ch == '+' || ch == '-') && rcount == 0) { // Check for +/-
-	//     rbuf[rcount++] = ch;      // Put in buffer
-	// }
-	// else if ((ch >= '0' && ch <= '9')) { // Check for 0-9
-	//     if (rcount < RCVD_BUF_SIZE-1)    // Leave room for the '\0'
-	// 	rbuf[rcount++] = ch;  // Put in buffer
-	//     else
-	// 	recv_start = 0;	// Too much data, reset the receiver
-	// }
-	// else
-	//     recv_start = 0;	// Bad data so reset the receiver
-    // }
-
-//-------------------------------------------------------------------------------------------------------------
-    char ch = UDR0; // Receiving register of microprocessor
-    char isGPS = 1; //Used to be0
-    if(isGPS) {
-        //lcd_writedata(ch);  // For immediate display, might remove to save time
-
-        if (ch == SERIAL_START) {  // Start of new message
-            recv_start = 1;
-            rcount = 0;
-        } else if (recv_start && rcount < RCVD_BUF_SIZE - 1) {
-            rbuf[rcount++] = ch;
-            if (ch == SERIAL_END) {  // End of transmission?
-                rbuf[rcount] = '\0'; // Terminate the string
-                recv_full = 1;       // Set flag for data received
-                recv_start = 0;      // Ready for next message
+    if (ch == SERIAL_START) {
+        buf_pos = 0; // Reset position for new sentence
+        sentence_type = 0; // Reset sentence type
+    } else if (ch == SERIAL_END) {
+        buffer[buf_pos] = '\0'; // Null-terminate the string
+        if (sentence_type == 1) { // GPRMC
+            strncpy((char*)rbufGPRMC, buffer, RCVD_BUF_SIZE);
+            recv_full_GPRMC = 1;
+        } else if (sentence_type == 2) { // GPGSA
+            strncpy((char*)rbufGPGSA, buffer, RCVD_BUF_SIZE);
+            recv_full_GPGSA = 1;
+        }
+        buf_pos = 0; // Reset for next sentence
+        sentence_type = 0; // Reset sentence type
+    } else {
+        if (buf_pos < RCVD_BUF_SIZE - 1) {
+            buffer[buf_pos++] = ch;
+        }
+        // Determine the type of sentence as soon as possible
+        if (buf_pos == 5) {
+            if (strncmp(buffer, "GPRMC", 5) == 0) {
+                sentence_type = 1;
+            } else if (strncmp(buffer, "GPGSA", 5) == 0) {
+                sentence_type = 2;
             }
-        } else {
-            recv_start = 0;  // Reset on overflow or other issues
-            rcount = 0;
         }
     }
-    else{
-        //lcd_writecommand(1);
-        //lcd_stringout("We are here");
-        //_delay_ms(1500);
-        if (loopCount == 0 && ch == 'A') {
-            lcd_writecommand(1);
-            lcd_stringout("Got something!");
-            loopCount++;
-            recv_start = 1;
-            rcount = 0;
-        } else if (recv_start && rcount < RCVD_BUF_SIZE - 1) {
-            rbuf[rcount++] = ch;
-            if(rcount == 14) {
-                rbuf[rcount] = '\0'; // Terminate the string
-                recv_full = 1;
-            }
-        } else {
-            recv_start = 0;  // Reset on overflow or other issues
-            rcount = 0;
-            loopCount = 0;
-        }
-    }
-//-------------------------------------------------------------------------------------------
-
-
-
 }
 
 // Call this function in your main loop to process received sentences
@@ -195,13 +153,13 @@ int check_sats() {
     char display_buffer[32]; // Buffer to hold the display string
     int numsats = 0;
 
-    if (recv_full) {
+    if (recv_full_GPGSA) {
         // lcd_writecommand(1);
         // lcd_stringout("Checking for sats");
         cli();  // Disable interrupts to copy the buffer safely
-        strncpy(local_buffer, rbuf, RCVD_BUF_SIZE);  // Copy the buffer for processing
+        strncpy(local_buffer, rbufGPGSA, RCVD_BUF_SIZE);  // Copy the GPGSA buffer for processing
         local_buffer[RCVD_BUF_SIZE - 1] = '\0';  // Ensure null termination
-        recv_full = 0;  // Reset the flag
+        recv_full_GPGSA = 0;  // Reset the flag
         sei();  // Enable interrupts again
 
         // Now process the local_buffer to find the number of satellites
@@ -240,17 +198,16 @@ int check_sats() {
 // Call this function in your main loop to process received sentences
 Location get_coord() {
     char local_buffer[RCVD_BUF_SIZE];
-    char display_buffer[64]; // Buffer to hold the display string, increased size for latitude and longitude
     Location coordinates = {0,0};
 
-    if (recv_full) {
+    if (recv_full_GPRMC) {
         // lcd_writecommand(1);
         // lcd_stringout("Checking for coords");
         // _delay_ms(1000);
         cli();  // Disable interrupts to copy the buffer safely
-        strncpy(local_buffer, rbuf, RCVD_BUF_SIZE);  // Copy the buffer for processing
+        strncpy(local_buffer, rbufGPRMC, RCVD_BUF_SIZE);  // Copy the GPRMC buffer for processing
         local_buffer[RCVD_BUF_SIZE - 1] = '\0';  // Ensure null termination
-        recv_full = 0;  // Reset the flag
+        recv_full_GPRMC = 0;  // Reset the flag
         sei();  // Enable interrupts again
 
         if (strncmp(local_buffer, "GPRMC", 5) == 0) {
@@ -281,40 +238,29 @@ Location get_coord() {
             }
 
             if (latitude && longitude) {
-                // lcd_writecommand(1);
-                // sprintf(display_buffer, "Lat: %s, %s", latitude, lat_ns);
-                // lcd_stringout(display_buffer);
                 float latitude_float = atof(latitude);
                 float longitude_float = atof(longitude);
                 coordinates.latitude = (int)((latitude_float - (int)latitude_float) * 10000);
                 coordinates.longitude = (int)((longitude_float - (int)longitude_float) * 10000);
-
-                // lcd_moveto(1,0);
-                // sprintf(display_buffer, "Lon: %s, %s", longitude, lon_ns);
-                // lcd_stringout(display_buffer);
-                // _delay_ms(2000);
             }
         }
     }
     return coordinates;
 }
 
+GPS process_gps_data() {
+    GPS returnData = {0, 0, 0};
+    if (recv_full_GPRMC && recv_full_GPGSA) {
+        Location coords = get_coord(); // Process coordinates from GPRMC
+        int sats = check_sats(); // Process satellite count from GPGSA
 
-// // Call this function in your main loop to process received sentences
-// void check_vr() {
-//     char local_buffer[32];
-//     char display_buffer[32]; // Buffer to hold the display string
+        returnData.latitude = coords.latitude;
+        returnData.longitude = coords.longitude;
+        returnData.sats = sats;
 
-    
-//         lcd_writecommand(1);
-//         lcd_stringout("recv_full");
-//         cli();  // Disable interrupts to copy the buffer safely
-//         strncpy(local_buffer, rbuf, 32);  // Copy the buffer for processing
-//         local_buffer[32 - 1] = '\0';  // Ensure null termination
-//         recv_full = 0;  // Reset the flag
-//         lcd_moveto(1,0);
-//         lcd_stringout(local_buffer);
-//         sei();  // Enable interrupts again
-
-    
-// }
+        // Clear the flags
+        recv_full_GPRMC = 0;
+        recv_full_GPGSA = 0;
+    }
+    return returnData;
+}

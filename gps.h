@@ -1,9 +1,10 @@
-#ifndef COORDINATES_H
-#define COORDINATES_H
+#ifndef GPS_H
+#define GPS_H
 
 typedef struct {
     uint32_t latitude;
     uint32_t longitude;
-} Location;
+    int sats;
+} GPS;
 
 #endif
